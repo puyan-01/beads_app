@@ -10,9 +10,11 @@ import '../../../application/usecases/import_image_usecase.dart';
 import '../../../application/usecases/save_project_usecase.dart';
 import '../../../domain/entities/canvas_document.dart';
 import '../../../domain/entities/edit_operation.dart';
+import '../../../domain/entities/palette.dart';
 import '../../../domain/repositories/project_repository.dart';
 import '../../../domain/services/asset_storage_service.dart';
 import '../../../domain/services/renderer_service.dart';
+import '../editor_models.dart';
 import 'editor_state.dart';
 
 final editorControllerProvider =
@@ -38,7 +40,8 @@ class EditorController extends StateNotifier<EditorState> {
     required SaveProjectUseCase saveUseCase,
     required ExportPngUseCase exportUseCase,
     required AssetStorageService assetStorage,
-  })  : _applyUseCase = applyUseCase,
+  })  : _initialSnapshot = initialSnapshot,
+        _applyUseCase = applyUseCase,
         _importUseCase = importUseCase,
         _saveUseCase = saveUseCase,
         _exportUseCase = exportUseCase,
@@ -54,12 +57,15 @@ class EditorController extends StateNotifier<EditorState> {
           ),
         );
 
+  final ProjectSnapshot _initialSnapshot;
   final ApplyEditOperationUseCase _applyUseCase;
   final ImportImageUseCase _importUseCase;
   final SaveProjectUseCase _saveUseCase;
   final ExportPngUseCase _exportUseCase;
   final AssetStorageService _assetStorage;
   Timer? _autoSaveTimer;
+
+  ProjectSnapshot get initialSnapshot => _initialSnapshot;
 
   void setTool(EditTool tool) {
     state = state.copyWith(currentTool: tool, clearMessage: true);
@@ -69,7 +75,17 @@ class EditorController extends StateNotifier<EditorState> {
     state = state.copyWith(selectedColorIndex: index, clearMessage: true);
   }
 
+  void setZoom(double zoom) {
+    state = state.copyWith(zoomLevel: zoom);
+  }
+
+  void setCursor(int x, int y) {
+    state = state.copyWith(currentX: x, currentY: y);
+  }
+
   void tapCell(int x, int y) {
+    setCursor(x, y);
+
     final operation = switch (state.currentTool) {
       EditTool.paint => EditOperation.paint(x: x, y: y, colorIndex: state.selectedColorIndex),
       EditTool.erase => EditOperation.erase(x: x, y: y),
@@ -103,39 +119,60 @@ class EditorController extends StateNotifier<EditorState> {
     _updateDocument(nextDoc);
   }
 
-  Future<void> importImage(Uint8List bytes) async {
+  Future<void> importImage(Uint8List bytes, {ImportConfig? config}) async {
     state = state.copyWith(isBusy: true, message: '正在转换图片...');
     try {
       final imagePath = await _assetStorage.saveSourceImage(state.project.id, bytes);
+
+      final targetWidth = config?.outputWidth ?? state.document.width;
+      final targetHeight = config?.outputHeight ?? state.document.height;
+      final maxColors = config?.maxColors ?? state.palette.colors.length;
+      final palette = _limitPalette(state.palette, maxColors);
+
       final converted = await _importUseCase(
         ImportImageInput(
           sourceBytes: bytes,
-          targetWidth: state.document.width,
-          targetHeight: state.document.height,
-          palette: state.palette,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
+          palette: palette,
           layerId: state.document.activeLayerId,
         ),
       );
-      final nextProject = state.project.copyWith(updatedAt: DateTime.now());
+
+      final nextProject = state.project.copyWith(
+        updatedAt: DateTime.now(),
+        canvasWidth: targetWidth,
+        canvasHeight: targetHeight,
+      );
       state = state.copyWith(
         project: nextProject,
         document: converted,
+        palette: palette,
         isBusy: false,
         message: '图片已转为拼豆图',
         sourceImagePath: imagePath,
+        saveState: SaveState.dirty,
       );
-      await save();
+      await save(showMessage: false);
+      state = state.copyWith(message: '图片导入完成');
     } catch (error) {
       state = state.copyWith(isBusy: false, message: '导入失败: $error');
     }
   }
 
-  Future<void> save() async {
+  Palette _limitPalette(Palette palette, int maxColors) {
+    final safe = maxColors.clamp(2, palette.colors.length);
+    return Palette(id: palette.id, name: palette.name, colors: palette.colors.take(safe).toList());
+  }
+
+  Future<void> save({bool showMessage = true}) async {
     final nextProject = state.project.copyWith(
       updatedAt: DateTime.now(),
       activeLayerId: state.document.activeLayerId,
     );
-    state = state.copyWith(project: nextProject);
+
+    state = state.copyWith(project: nextProject, saveState: SaveState.saving);
+
     await _saveUseCase(
       ProjectSnapshot(
         project: nextProject,
@@ -144,7 +181,11 @@ class EditorController extends StateNotifier<EditorState> {
         sourceImagePath: state.sourceImagePath,
       ),
     );
-    state = state.copyWith(message: '工程已保存');
+
+    state = state.copyWith(
+      saveState: SaveState.saved,
+      message: showMessage ? '已保存' : state.message,
+    );
   }
 
   Future<String?> export(PngExportMode mode) async {
@@ -170,11 +211,16 @@ class EditorController extends StateNotifier<EditorState> {
 
   void _updateDocument(CanvasDocument nextDoc) {
     final nextProject = state.project.copyWith(updatedAt: DateTime.now());
-    state = state.copyWith(project: nextProject, document: nextDoc, clearMessage: true);
+    state = state.copyWith(
+      project: nextProject,
+      document: nextDoc,
+      clearMessage: true,
+      saveState: SaveState.dirty,
+    );
 
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(const Duration(milliseconds: 800), () {
-      unawaited(save());
+      unawaited(save(showMessage: false));
     });
   }
 
@@ -184,4 +230,3 @@ class EditorController extends StateNotifier<EditorState> {
     super.dispose();
   }
 }
-

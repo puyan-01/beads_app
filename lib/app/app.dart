@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 
-import 'package:beads_app/presentation/home/home_page.dart';
+import '../presentation/shell/shell_page.dart';
+import 'ui/app_theme.dart';
 
 class BeadsApp extends StatelessWidget {
   const BeadsApp({super.key});
@@ -10,11 +11,8 @@ class BeadsApp extends StatelessWidget {
     return MaterialApp(
       title: 'Beads App',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1E7A6A)),
-      ),
-      home: const HomePage(),
+      theme: buildAppTheme(),
+      home: const ShellPage(),
     );
   }
 }
-
