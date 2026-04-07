@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,20 +17,20 @@ import '../../../domain/services/renderer_service.dart';
 import '../editor_models.dart';
 import 'editor_state.dart';
 
-final editorControllerProvider =
-    StateNotifierProvider.autoDispose.family<EditorController, EditorState, ProjectSnapshot>((
-  ref,
-  initialSnapshot,
-) {
-  return EditorController(
-    initialSnapshot: initialSnapshot,
-    applyUseCase: ref.read(applyEditOperationUseCaseProvider),
-    importUseCase: ref.read(importImageUseCaseProvider),
-    saveUseCase: ref.read(saveProjectUseCaseProvider),
-    exportUseCase: ref.read(exportPngUseCaseProvider),
-    assetStorage: ref.read(assetStorageProvider),
-  );
-});
+final editorControllerProvider = StateNotifierProvider.autoDispose
+    .family<EditorController, EditorState, ProjectSnapshot>((
+      ref,
+      initialSnapshot,
+    ) {
+      return EditorController(
+        initialSnapshot: initialSnapshot,
+        applyUseCase: ref.read(applyEditOperationUseCaseProvider),
+        importUseCase: ref.read(importImageUseCaseProvider),
+        saveUseCase: ref.read(saveProjectUseCaseProvider),
+        exportUseCase: ref.read(exportPngUseCaseProvider),
+        assetStorage: ref.read(assetStorageProvider),
+      );
+    });
 
 class EditorController extends StateNotifier<EditorState> {
   EditorController({
@@ -40,22 +40,22 @@ class EditorController extends StateNotifier<EditorState> {
     required SaveProjectUseCase saveUseCase,
     required ExportPngUseCase exportUseCase,
     required AssetStorageService assetStorage,
-  })  : _initialSnapshot = initialSnapshot,
-        _applyUseCase = applyUseCase,
-        _importUseCase = importUseCase,
-        _saveUseCase = saveUseCase,
-        _exportUseCase = exportUseCase,
-        _assetStorage = assetStorage,
-        super(
-          EditorState(
-            project: initialSnapshot.project,
-            document: initialSnapshot.document,
-            palette: initialSnapshot.palette,
-            currentTool: EditTool.paint,
-            selectedColorIndex: 0,
-            sourceImagePath: initialSnapshot.sourceImagePath,
-          ),
-        );
+  }) : _initialSnapshot = initialSnapshot,
+       _applyUseCase = applyUseCase,
+       _importUseCase = importUseCase,
+       _saveUseCase = saveUseCase,
+       _exportUseCase = exportUseCase,
+       _assetStorage = assetStorage,
+       super(
+         EditorState(
+           project: initialSnapshot.project,
+           document: initialSnapshot.document,
+           palette: initialSnapshot.palette,
+           currentTool: EditTool.paint,
+           selectedColorIndex: 0,
+           sourceImagePath: initialSnapshot.sourceImagePath,
+         ),
+       );
 
   final ProjectSnapshot _initialSnapshot;
   final ApplyEditOperationUseCase _applyUseCase;
@@ -64,6 +64,9 @@ class EditorController extends StateNotifier<EditorState> {
   final ExportPngUseCase _exportUseCase;
   final AssetStorageService _assetStorage;
   Timer? _autoSaveTimer;
+  final List<CanvasDocument> _undoStack = <CanvasDocument>[];
+  final List<CanvasDocument> _redoStack = <CanvasDocument>[];
+  static const int _maxHistorySize = 80;
 
   ProjectSnapshot get initialSnapshot => _initialSnapshot;
 
@@ -76,28 +79,71 @@ class EditorController extends StateNotifier<EditorState> {
   }
 
   void setZoom(double zoom) {
-    state = state.copyWith(zoomLevel: zoom);
+    final nextZoom = zoom.roundToDouble();
+    if ((state.zoomLevel - nextZoom).abs() < 0.1) {
+      return;
+    }
+    state = state.copyWith(zoomLevel: nextZoom);
   }
 
   void setCursor(int x, int y) {
+    if (state.currentX == x && state.currentY == y) {
+      return;
+    }
     state = state.copyWith(currentX: x, currentY: y);
+  }
+
+  void undo() {
+    if (_undoStack.isEmpty) {
+      return;
+    }
+    final previousDoc = _undoStack.removeLast();
+    _redoStack.add(state.document);
+    _trimRedoHistory();
+    _updateDocument(previousDoc, trackHistory: false);
+  }
+
+  void redo() {
+    if (_redoStack.isEmpty) {
+      return;
+    }
+    final nextDoc = _redoStack.removeLast();
+    _undoStack.add(state.document);
+    _trimUndoHistory();
+    _updateDocument(nextDoc, trackHistory: false);
   }
 
   void tapCell(int x, int y) {
     setCursor(x, y);
 
     final operation = switch (state.currentTool) {
-      EditTool.paint => EditOperation.paint(x: x, y: y, colorIndex: state.selectedColorIndex),
+      EditTool.paint => EditOperation.paint(
+        x: x,
+        y: y,
+        colorIndex: state.selectedColorIndex,
+      ),
       EditTool.erase => EditOperation.erase(x: x, y: y),
       EditTool.picker => EditOperation.pick(x: x, y: y),
-      EditTool.select => EditOperation.select(startX: x, startY: y, endX: x, endY: y),
-      EditTool.move => EditOperation.paint(x: x, y: y, colorIndex: state.selectedColorIndex),
+      EditTool.select => EditOperation.select(
+        startX: x,
+        startY: y,
+        endX: x,
+        endY: y,
+      ),
+      EditTool.move => EditOperation.paint(
+        x: x,
+        y: y,
+        colorIndex: state.selectedColorIndex,
+      ),
     };
 
     if (state.currentTool == EditTool.picker) {
       final picked = _applyUseCase.readCell(state.document, x, y);
       if (picked >= 0) {
-        state = state.copyWith(selectedColorIndex: picked, currentTool: EditTool.paint);
+        state = state.copyWith(
+          selectedColorIndex: picked,
+          currentTool: EditTool.paint,
+        );
       }
       return;
     }
@@ -109,20 +155,31 @@ class EditorController extends StateNotifier<EditorState> {
   void updateSelection(int startX, int startY, int endX, int endY) {
     final nextDoc = _applyUseCase(
       state.document,
-      EditOperation.select(startX: startX, startY: startY, endX: endX, endY: endY),
+      EditOperation.select(
+        startX: startX,
+        startY: startY,
+        endX: endX,
+        endY: endY,
+      ),
     );
     state = state.copyWith(document: nextDoc, clearMessage: true);
   }
 
   void moveSelection(int dx, int dy) {
-    final nextDoc = _applyUseCase(state.document, EditOperation.moveSelection(dx: dx, dy: dy));
+    final nextDoc = _applyUseCase(
+      state.document,
+      EditOperation.moveSelection(dx: dx, dy: dy),
+    );
     _updateDocument(nextDoc);
   }
 
   Future<void> importImage(Uint8List bytes, {ImportConfig? config}) async {
     state = state.copyWith(isBusy: true, message: '正在转换图片...');
     try {
-      final imagePath = await _assetStorage.saveSourceImage(state.project.id, bytes);
+      final imagePath = await _assetStorage.saveSourceImage(
+        state.project.id,
+        bytes,
+      );
 
       final targetWidth = config?.outputWidth ?? state.document.width;
       final targetHeight = config?.outputHeight ?? state.document.height;
@@ -144,6 +201,7 @@ class EditorController extends StateNotifier<EditorState> {
         canvasWidth: targetWidth,
         canvasHeight: targetHeight,
       );
+      _recordUndoSnapshot(state.document);
       state = state.copyWith(
         project: nextProject,
         document: converted,
@@ -152,6 +210,8 @@ class EditorController extends StateNotifier<EditorState> {
         message: '图片已转为拼豆图',
         sourceImagePath: imagePath,
         saveState: SaveState.dirty,
+        canUndo: _undoStack.isNotEmpty,
+        canRedo: _redoStack.isNotEmpty,
       );
       await save(showMessage: false);
       state = state.copyWith(message: '图片导入完成');
@@ -162,7 +222,11 @@ class EditorController extends StateNotifier<EditorState> {
 
   Palette _limitPalette(Palette palette, int maxColors) {
     final safe = maxColors.clamp(2, palette.colors.length);
-    return Palette(id: palette.id, name: palette.name, colors: palette.colors.take(safe).toList());
+    return Palette(
+      id: palette.id,
+      name: palette.name,
+      colors: palette.colors.take(safe).toList(),
+    );
   }
 
   Future<void> save({bool showMessage = true}) async {
@@ -209,19 +273,42 @@ class EditorController extends StateNotifier<EditorState> {
     }
   }
 
-  void _updateDocument(CanvasDocument nextDoc) {
+  void _updateDocument(CanvasDocument nextDoc, {bool trackHistory = true}) {
+    if (trackHistory) {
+      _recordUndoSnapshot(state.document);
+    }
     final nextProject = state.project.copyWith(updatedAt: DateTime.now());
     state = state.copyWith(
       project: nextProject,
       document: nextDoc,
       clearMessage: true,
       saveState: SaveState.dirty,
+      canUndo: _undoStack.isNotEmpty,
+      canRedo: _redoStack.isNotEmpty,
     );
 
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(const Duration(milliseconds: 800), () {
       unawaited(save(showMessage: false));
     });
+  }
+
+  void _recordUndoSnapshot(CanvasDocument document) {
+    _undoStack.add(document);
+    _trimUndoHistory();
+    _redoStack.clear();
+  }
+
+  void _trimUndoHistory() {
+    if (_undoStack.length > _maxHistorySize) {
+      _undoStack.removeRange(0, _undoStack.length - _maxHistorySize);
+    }
+  }
+
+  void _trimRedoHistory() {
+    if (_redoStack.length > _maxHistorySize) {
+      _redoStack.removeRange(0, _redoStack.length - _maxHistorySize);
+    }
   }
 
   @override

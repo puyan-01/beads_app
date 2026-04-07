@@ -1,10 +1,7 @@
-﻿import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../app/ui/theme_tokens.dart';
 import '../../domain/entities/edit_operation.dart';
@@ -20,6 +17,8 @@ import 'import_config_page.dart';
 import 'state/editor_controller.dart';
 import 'state/editor_state.dart';
 import 'widgets/bead_canvas.dart';
+
+enum _EditorToolAction { export }
 
 class EditorPage extends ConsumerStatefulWidget {
   const EditorPage({
@@ -53,7 +52,9 @@ class _EditorPageState extends ConsumerState<EditorPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(editorControllerProvider(widget.initialSnapshot));
-    final controller = ref.read(editorControllerProvider(widget.initialSnapshot).notifier);
+    final controller = ref.read(
+      editorControllerProvider(widget.initialSnapshot).notifier,
+    );
     final tokens = context.tokens;
 
     return PopScope(
@@ -69,8 +70,14 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             title: const Text('退出未保存项目？'),
             content: const Text('当前有未保存的修改，确认退出吗？'),
             actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
-              FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('退出')),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('退出'),
+              ),
             ],
           ),
         );
@@ -88,7 +95,11 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(state.project.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                state.project.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               Text(
                 _saveText(state.saveState),
                 style: TextStyle(fontSize: 11, color: tokens.textSecondary),
@@ -97,9 +108,14 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           ),
           actions: [
             IconButton(
-              tooltip: '导入',
-              onPressed: _pickAndOpenImport,
-              icon: const Icon(Icons.photo_library_outlined),
+              tooltip: '回退',
+              onPressed: state.canUndo ? controller.undo : null,
+              icon: const Icon(Icons.undo_rounded),
+            ),
+            IconButton(
+              tooltip: '前进',
+              onPressed: state.canRedo ? controller.redo : null,
+              icon: const Icon(Icons.redo_rounded),
             ),
             IconButton(
               tooltip: '保存工程',
@@ -110,22 +126,21 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               },
               icon: const Icon(Icons.save_outlined),
             ),
-            IconButton(
-              tooltip: '导出',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ExportPage(
-                      projectName: state.project.name,
-                      width: state.document.width,
-                      height: state.document.height,
-                      colorCount: state.palette.colors.length,
-                      onExport: controller.export,
-                    ),
+            PopupMenuButton<_EditorToolAction>(
+              tooltip: '工具',
+              icon: const Icon(Icons.build_outlined),
+              onSelected: (action) => _onToolAction(action, state, controller),
+              itemBuilder: (context) => const [
+                PopupMenuItem<_EditorToolAction>(
+                  value: _EditorToolAction.export,
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.file_upload_outlined),
+                    title: Text('导出'),
                   ),
-                );
-              },
-              icon: const Icon(Icons.file_upload_outlined),
+                ),
+              ],
             ),
           ],
         ),
@@ -141,7 +156,8 @@ class _EditorPageState extends ConsumerState<EditorPage> {
                     palette: state.palette,
                     onTapCell: controller.tapCell,
                     onUpdateSelection: (startX, startY, endX, endY) {
-                      if (state.currentTool == EditTool.select || state.currentTool == EditTool.move) {
+                      if (state.currentTool == EditTool.select ||
+                          state.currentTool == EditTool.move) {
                         controller.updateSelection(startX, startY, endX, endY);
                       }
                     },
@@ -157,7 +173,10 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             if (state.message != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8, top: 4),
-                child: Text(state.message!, style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+                child: Text(
+                  state.message!,
+                  style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+                ),
               ),
           ],
         ),
@@ -198,21 +217,20 @@ class _EditorPageState extends ConsumerState<EditorPage> {
           const SizedBox(height: 10),
           Row(
             children: [
-              Text('缩放 ${state.zoomLevel.toStringAsFixed(0)}%', style: TextStyle(fontSize: 12, color: tokens.textSecondary)),
+              Text(
+                '缩放 ${state.zoomLevel.toStringAsFixed(0)}%',
+                style: TextStyle(fontSize: 12, color: tokens.textSecondary),
+              ),
               const SizedBox(width: 12),
               Text(
-                state.currentX == null ? '坐标 -' : '坐标 (${state.currentX}, ${state.currentY})',
+                state.currentX == null
+                    ? '坐标 -'
+                    : '坐标 (${state.currentX}, ${state.currentY})',
                 style: TextStyle(fontSize: 12, color: tokens.textSecondary),
               ),
               const Spacer(),
-              TextButton(
-                onPressed: _openStats,
-                child: const Text('统计'),
-              ),
-              TextButton(
-                onPressed: _openViewSettings,
-                child: const Text('视图'),
-              ),
+              TextButton(onPressed: _openStats, child: const Text('统计')),
+              TextButton(onPressed: _openViewSettings, child: const Text('视图')),
             ],
           ),
         ],
@@ -269,9 +287,17 @@ class _EditorPageState extends ConsumerState<EditorPage> {
               onPressed: () => controller.setTool(EditTool.move),
             ),
             const SizedBox(width: 8),
-            SecondaryButton(label: '撤销', icon: Icons.undo_rounded, onPressed: () {}),
+            SecondaryButton(
+              label: '撤销',
+              icon: Icons.undo_rounded,
+              onPressed: state.canUndo ? controller.undo : null,
+            ),
             const SizedBox(width: 8),
-            SecondaryButton(label: '重做', icon: Icons.redo_rounded, onPressed: () {}),
+            SecondaryButton(
+              label: '重做',
+              icon: Icons.redo_rounded,
+              onPressed: state.canRedo ? controller.redo : null,
+            ),
           ],
         ),
       ),
@@ -286,34 +312,35 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     };
   }
 
-  Future<void> _pickAndOpenImport() async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.gallery);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
-      await _openImportConfig(bytes);
-      return;
-    }
-
-    final picked = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
-    if (picked == null || picked.files.isEmpty) {
-      return;
-    }
-
-    final item = picked.files.first;
-    if (item.bytes != null) {
-      await _openImportConfig(item.bytes!);
-      return;
-    }
-
-    if (item.path != null) {
-      final bytes = await File(item.path!).readAsBytes();
-      await _openImportConfig(bytes);
+  void _onToolAction(
+    _EditorToolAction action,
+    EditorState state,
+    EditorController controller,
+  ) {
+    switch (action) {
+      case _EditorToolAction.export:
+        _openExport(state, controller);
     }
   }
 
+  void _openExport(EditorState state, EditorController controller) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExportPage(
+          projectName: state.project.name,
+          width: state.document.width,
+          height: state.document.height,
+          colorCount: state.palette.colors.length,
+          onExport: controller.export,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openImportConfig(Uint8List bytes) async {
-    final controller = ref.read(editorControllerProvider(widget.initialSnapshot).notifier);
+    final controller = ref.read(
+      editorControllerProvider(widget.initialSnapshot).notifier,
+    );
     final state = ref.read(editorControllerProvider(widget.initialSnapshot));
 
     final config = await Navigator.of(context).push<ImportConfig>(
@@ -346,13 +373,19 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('颜色统计', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                '颜色统计',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 12),
               Text('画布总颗粒数：${state.document.width * state.document.height}'),
               const SizedBox(height: 4),
               Text('可用颜色数：${state.palette.colors.length}'),
               const SizedBox(height: 12),
-              SecondaryButton(label: '关闭', onPressed: () => Navigator.of(context).pop()),
+              SecondaryButton(
+                label: '关闭',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ],
           ),
         );
@@ -371,11 +404,17 @@ class _EditorPageState extends ConsumerState<EditorPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('视图设置', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const Text(
+                '视图设置',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 12),
               const Text('双击画布可恢复合适缩放比例。'),
               const SizedBox(height: 12),
-              SecondaryButton(label: '关闭', onPressed: () => Navigator.of(context).pop()),
+              SecondaryButton(
+                label: '关闭',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ],
           ),
         );
@@ -394,9 +433,3 @@ class _EditorPageState extends ConsumerState<EditorPage> {
     );
   }
 }
-
-
-
-
-
-

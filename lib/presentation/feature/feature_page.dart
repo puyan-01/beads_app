@@ -1,4 +1,3 @@
-﻿
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -37,7 +36,9 @@ class FeaturePage extends ConsumerWidget {
                 const SizedBox(height: 4),
                 Text(
                   '把图片快速转成拼豆图纸，继续你的创作',
-                  style: AppTextStyles.body.copyWith(color: tokens.textSecondary),
+                  style: AppTextStyles.body.copyWith(
+                    color: tokens.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 AppCard(
@@ -48,7 +49,9 @@ class FeaturePage extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Text(
                         '直接回到最近一次项目，减少重复操作。',
-                        style: AppTextStyles.body.copyWith(color: tokens.textSecondary),
+                        style: AppTextStyles.body.copyWith(
+                          color: tokens.textSecondary,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       projectsAsync.maybeWhen(
@@ -63,7 +66,8 @@ class FeaturePage extends ConsumerWidget {
                           return PrimaryButton(
                             label: '继续 ${projects.first.name}',
                             icon: Icons.play_arrow_rounded,
-                            onPressed: () => _openProject(context, ref, projects.first.id),
+                            onPressed: () =>
+                                _openProject(context, ref, projects.first.id),
                           );
                         },
                         orElse: () => const SizedBox.shrink(),
@@ -81,6 +85,7 @@ class FeaturePage extends ConsumerWidget {
                         icon: Icons.image_outlined,
                         title: '导入图片',
                         subtitle: '从相册快速开始',
+                        enableTapBounce: false,
                         onTap: () => _importImageFlow(context, ref),
                       ),
                     ),
@@ -101,7 +106,9 @@ class FeaturePage extends ConsumerWidget {
                   title: '模板推荐',
                   subtitle: '浏览模板资源库（占位）',
                   onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TemplatePage()));
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const TemplatePage()),
+                    );
                   },
                 ),
                 const SizedBox(height: 20),
@@ -115,7 +122,10 @@ class FeaturePage extends ConsumerWidget {
           loading: () => SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             sliver: SliverToBoxAdapter(
-              child: SizedBox(height: 280, child: LoadingSkeleton(itemCount: 3)),
+              child: SizedBox(
+                height: 280,
+                child: LoadingSkeleton(itemCount: 3),
+              ),
             ),
           ),
           error: (error, stack) => SliverToBoxAdapter(
@@ -163,7 +173,8 @@ class FeaturePage extends ConsumerWidget {
                     ),
                   );
                 },
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
               ),
             );
           },
@@ -183,7 +194,11 @@ class FeaturePage extends ConsumerWidget {
     return '已完成';
   }
 
-  Future<void> _openProject(BuildContext context, WidgetRef ref, String projectId) async {
+  Future<void> _openProject(
+    BuildContext context,
+    WidgetRef ref,
+    String projectId,
+  ) async {
     final loader = ref.read(loadProjectUseCaseProvider);
     final snapshot = await loader(projectId);
     if (snapshot == null || !context.mounted) {
@@ -217,7 +232,9 @@ class FeaturePage extends ConsumerWidget {
       return;
     }
 
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => EditorPage(initialSnapshot: snapshot)));
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => EditorPage(initialSnapshot: snapshot)),
+    );
     ref.invalidate(recentProjectsProvider);
   }
 
@@ -253,10 +270,8 @@ class FeaturePage extends ConsumerWidget {
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => EditorPage(
-          initialSnapshot: snapshot,
-          initialImportBytes: bytes,
-        ),
+        builder: (_) =>
+            EditorPage(initialSnapshot: snapshot, initialImportBytes: bytes),
       ),
     );
 
@@ -270,18 +285,21 @@ class _QuickActionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.enableTapBounce = true,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool enableTapBounce;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     return AppCard(
       onTap: onTap,
+      enableTapBounce: enableTapBounce,
       child: Row(
         children: [
           Container(
@@ -343,8 +361,12 @@ class _CreateProjectDialog extends StatefulWidget {
 
 class _CreateProjectDialogState extends State<_CreateProjectDialog> {
   late final TextEditingController _nameController;
-  final TextEditingController _widthController = TextEditingController(text: '58');
-  final TextEditingController _heightController = TextEditingController(text: '58');
+  final TextEditingController _widthController = TextEditingController(
+    text: '58',
+  );
+  final TextEditingController _heightController = TextEditingController(
+    text: '58',
+  );
 
   bool get _isValid {
     if (_nameController.text.trim().isEmpty) {
@@ -376,7 +398,9 @@ class _CreateProjectDialogState extends State<_CreateProjectDialog> {
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(tokens.radiusCard)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.radiusCard),
+      ),
       title: const Text('新建项目'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -420,19 +444,24 @@ class _CreateProjectDialogState extends State<_CreateProjectDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
         FilledButton(
           onPressed: _isValid
               ? () {
-            final width = int.tryParse(_widthController.text) ?? 58;
-            final height = int.tryParse(_heightController.text) ?? 58;
-            final draft = _ProjectDraft(
-              name: _nameController.text.trim().isEmpty ? widget.defaultName : _nameController.text.trim(),
-              width: width.clamp(8, 256),
-              height: height.clamp(8, 256),
-            );
-            Navigator.of(context).pop(draft);
-          }
+                  final width = int.tryParse(_widthController.text) ?? 58;
+                  final height = int.tryParse(_heightController.text) ?? 58;
+                  final draft = _ProjectDraft(
+                    name: _nameController.text.trim().isEmpty
+                        ? widget.defaultName
+                        : _nameController.text.trim(),
+                    width: width.clamp(8, 256),
+                    height: height.clamp(8, 256),
+                  );
+                  Navigator.of(context).pop(draft);
+                }
               : null,
           child: const Text('创建'),
         ),
@@ -440,7 +469,3 @@ class _CreateProjectDialogState extends State<_CreateProjectDialog> {
     );
   }
 }
-
-
-
-

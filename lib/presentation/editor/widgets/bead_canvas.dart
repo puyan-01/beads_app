@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -19,7 +19,8 @@ class BeadCanvas extends StatefulWidget {
   final CanvasDocument document;
   final Palette palette;
   final void Function(int x, int y) onTapCell;
-  final void Function(int startX, int startY, int endX, int endY) onUpdateSelection;
+  final void Function(int startX, int startY, int endX, int endY)
+  onUpdateSelection;
   final void Function(int x, int y)? onCursor;
   final void Function(double scalePercent)? onScaleChanged;
 
@@ -30,6 +31,10 @@ class BeadCanvas extends StatefulWidget {
 class _BeadCanvasState extends State<BeadCanvas> {
   int? _startX;
   int? _startY;
+  int? _lastCellX;
+  int? _lastCellY;
+  final Set<int> _activePointers = <int>{};
+  double _lastReportedScale = 100;
   late final TransformationController _transformController;
 
   @override
@@ -49,7 +54,67 @@ class _BeadCanvasState extends State<BeadCanvas> {
 
   void _onTransformChanged() {
     final scale = _transformController.value.getMaxScaleOnAxis() * 100;
-    widget.onScaleChanged?.call(scale);
+    final rounded = scale.roundToDouble();
+    if ((rounded - _lastReportedScale).abs() < 0.1) {
+      return;
+    }
+    _lastReportedScale = rounded;
+    widget.onScaleChanged?.call(rounded);
+  }
+
+  void _clearPointerDrag() {
+    _startX = null;
+    _startY = null;
+    _lastCellX = null;
+    _lastCellY = null;
+  }
+
+  void _handlePointerDown(PointerDownEvent event, double cellSize) {
+    _activePointers.add(event.pointer);
+    if (_activePointers.length != 1) {
+      _clearPointerDrag();
+      return;
+    }
+
+    final cell = _toCell(event.localPosition, cellSize);
+    if (cell == null) {
+      return;
+    }
+
+    _startX = cell.$1;
+    _startY = cell.$2;
+    _lastCellX = cell.$1;
+    _lastCellY = cell.$2;
+    widget.onTapCell(cell.$1, cell.$2);
+    widget.onUpdateSelection(cell.$1, cell.$2, cell.$1, cell.$2);
+    widget.onCursor?.call(cell.$1, cell.$2);
+  }
+
+  void _handlePointerMove(PointerMoveEvent event, double cellSize) {
+    if (_activePointers.length != 1 || _startX == null || _startY == null) {
+      return;
+    }
+
+    final cell = _toCell(event.localPosition, cellSize);
+    if (cell == null) {
+      return;
+    }
+
+    if (_lastCellX == cell.$1 && _lastCellY == cell.$2) {
+      return;
+    }
+
+    _lastCellX = cell.$1;
+    _lastCellY = cell.$2;
+    widget.onUpdateSelection(_startX!, _startY!, cell.$1, cell.$2);
+    widget.onCursor?.call(cell.$1, cell.$2);
+  }
+
+  void _handlePointerUpOrCancel(int pointer) {
+    _activePointers.remove(pointer);
+    if (_activePointers.length <= 1) {
+      _clearPointerDrag();
+    }
   }
 
   @override
@@ -60,54 +125,32 @@ class _BeadCanvasState extends State<BeadCanvas> {
         final height = widget.document.height;
         final cellSize = math.max(
           8.0,
-          math.min(constraints.maxWidth / width, constraints.maxHeight / height),
+          math.min(
+            constraints.maxWidth / width,
+            constraints.maxHeight / height,
+          ),
         );
         final size = Size(width * cellSize, height * cellSize);
 
         return GestureDetector(
           onDoubleTap: () {
             _transformController.value = Matrix4.identity();
+            _lastReportedScale = 100;
             widget.onScaleChanged?.call(100);
           },
           child: InteractiveViewer(
             transformationController: _transformController,
             minScale: 0.6,
             maxScale: 4,
+            panEnabled: false,
             child: Center(
-              child: GestureDetector(
+              child: Listener(
                 behavior: HitTestBehavior.opaque,
-                onTapDown: (details) {
-                  final cell = _toCell(details.localPosition, cellSize);
-                  if (cell != null) {
-                    widget.onTapCell(cell.$1, cell.$2);
-                    widget.onCursor?.call(cell.$1, cell.$2);
-                  }
-                },
-                onPanStart: (details) {
-                  final cell = _toCell(details.localPosition, cellSize);
-                  if (cell == null) {
-                    return;
-                  }
-                  _startX = cell.$1;
-                  _startY = cell.$2;
-                  widget.onUpdateSelection(cell.$1, cell.$2, cell.$1, cell.$2);
-                  widget.onCursor?.call(cell.$1, cell.$2);
-                },
-                onPanUpdate: (details) {
-                  if (_startX == null || _startY == null) {
-                    return;
-                  }
-                  final cell = _toCell(details.localPosition, cellSize);
-                  if (cell == null) {
-                    return;
-                  }
-                  widget.onUpdateSelection(_startX!, _startY!, cell.$1, cell.$2);
-                  widget.onCursor?.call(cell.$1, cell.$2);
-                },
-                onPanEnd: (_) {
-                  _startX = null;
-                  _startY = null;
-                },
+                onPointerDown: (event) => _handlePointerDown(event, cellSize),
+                onPointerMove: (event) => _handlePointerMove(event, cellSize),
+                onPointerUp: (event) => _handlePointerUpOrCancel(event.pointer),
+                onPointerCancel: (event) =>
+                    _handlePointerUpOrCancel(event.pointer),
                 child: CustomPaint(
                   size: size,
                   painter: _BeadCanvasPainter(
@@ -127,7 +170,10 @@ class _BeadCanvasState extends State<BeadCanvas> {
   (int, int)? _toCell(Offset localPosition, double cellSize) {
     final x = (localPosition.dx / cellSize).floor();
     final y = (localPosition.dy / cellSize).floor();
-    if (x < 0 || x >= widget.document.width || y < 0 || y >= widget.document.height) {
+    if (x < 0 ||
+        x >= widget.document.width ||
+        y < 0 ||
+        y >= widget.document.height) {
       return null;
     }
     return (x, y);
@@ -151,7 +197,12 @@ class _BeadCanvasPainter extends CustomPainter {
     final checkerDark = Paint()..color = const Color(0xFFE5E7EB);
     for (var y = 0; y < document.height; y++) {
       for (var x = 0; x < document.width; x++) {
-        final rect = Rect.fromLTWH(x * cellSize, y * cellSize, cellSize, cellSize);
+        final rect = Rect.fromLTWH(
+          x * cellSize,
+          y * cellSize,
+          cellSize,
+          cellSize,
+        );
         canvas.drawRect(rect, (x + y).isEven ? checkerLight : checkerDark);
       }
     }

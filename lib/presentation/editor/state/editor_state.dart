@@ -19,6 +19,8 @@ class EditorState {
     this.zoomLevel = 100,
     this.currentX,
     this.currentY,
+    this.canUndo = false,
+    this.canRedo = false,
   });
 
   final BeadProject project;
@@ -33,6 +35,8 @@ class EditorState {
   final double zoomLevel;
   final int? currentX;
   final int? currentY;
+  final bool canUndo;
+  final bool canRedo;
 
   EditorState copyWith({
     BeadProject? project,
@@ -48,6 +52,8 @@ class EditorState {
     double? zoomLevel,
     int? currentX,
     int? currentY,
+    bool? canUndo,
+    bool? canRedo,
     bool clearCoordinate = false,
   }) {
     return EditorState(
@@ -63,6 +69,8 @@ class EditorState {
       zoomLevel: zoomLevel ?? this.zoomLevel,
       currentX: clearCoordinate ? null : (currentX ?? this.currentX),
       currentY: clearCoordinate ? null : (currentY ?? this.currentY),
+      canUndo: canUndo ?? this.canUndo,
+      canRedo: canRedo ?? this.canRedo,
     );
   }
 }
